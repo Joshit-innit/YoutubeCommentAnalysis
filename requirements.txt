@@ -1,0 +1,10 @@
+streamlit
+pandas
+scikit-learn
+joblib
+nltk
+vaderSentiment
+wordcloud
+matplotlib
+google-api-python-client
+python-dotenv
