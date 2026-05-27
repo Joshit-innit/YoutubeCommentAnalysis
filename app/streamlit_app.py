@@ -49,6 +49,10 @@ from components.insights import (
     generate_insights
 )
 
+from components.clustering import (
+    cluster_comments
+)
+
 # =========================================================
 # PAGE CONFIG
 # =========================================================
@@ -225,6 +229,18 @@ if analyze_button:
                 .apply(get_sentiment)
             )
 
+            # =====================================
+            # COMMENT CLUSTERING
+            # =====================================
+
+            clusters, cluster_keywords = (
+                cluster_comments(
+                    df["clean_comment"]
+                )
+            )
+
+            df["cluster"] = clusters
+
             # =========================================
             # COMMENT LENGTH
             # =========================================
@@ -342,13 +358,18 @@ if analyze_button:
             # TABS
             # =========================================
 
-            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            # =========================================================
+            # 4️⃣ UPDATE TABS
+            # =========================================================
+
+            tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
                 "📈 Sentiment",
                 "☠️ Toxicity",
                 "🚨 Spam",
                 "🔥 Top Comments",
                 "📊 Engagement",
-                "📋 Raw Data"
+                "📋 Raw Data",
+                "🧠 Clusters"
             ])
 
             # =========================================
@@ -577,6 +598,49 @@ if analyze_button:
                     file_name="youtube_analysis.csv",
                     mime="text/csv"
                 )
+            # =========================================
+            # TAB 7 - COMMENT CLUSTERS
+            # =========================================
+
+            with tab7:
+
+                st.markdown(
+                    "## 🧠 Audience Discussion Clusters"
+                )
+
+                st.write(
+                    """
+                    Similar comments are grouped together
+                    to understand what the audience is
+                    discussing most.
+                    """
+                )
+
+                for cluster_id, keywords in cluster_keywords.items():
+
+                    st.subheader(
+                        f"Cluster {cluster_id + 1}"
+                    )
+
+                    st.write(
+                        f"Main Topics: {', '.join(keywords)}"
+                    )
+
+                    cluster_comments_df = df[
+                        df["cluster"] == cluster_id
+                    ]
+
+                    st.dataframe(
+                        cluster_comments_df[
+                            [
+                                "author",
+                                "comment",
+                                "likes",
+                                "sentiment"
+                            ]
+                        ].head(10),
+                        use_container_width=True
+                    )
 
             # =========================================
             # AI INSIGHTS
