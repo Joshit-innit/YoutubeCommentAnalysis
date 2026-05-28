@@ -9,3 +9,4 @@ matplotlib
 plotly
 google-api-python-client
 python-dotenv
+nltk
