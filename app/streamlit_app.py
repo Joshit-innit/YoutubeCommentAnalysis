@@ -32,8 +32,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-load_dotenv()
-API_KEY = os.getenv("YOUTUBE_API_KEY")
+API_KEY = st.secrets["YOUTUBE_API_KEY"]
 
 
 def load_css():
