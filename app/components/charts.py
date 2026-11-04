@@ -1,373 +1,267 @@
-import matplotlib.pyplot as plt
-import plotly.express as px
-import plotly.graph_objects as go
 import pandas as pd
-from wordcloud import WordCloud
+import plotly.graph_objects as go
+
+SURFACE = "#ffffff"
+INK = "#0b0b0b"
+INK_SECONDARY = "#52514e"
+INK_MUTED = "#6f6d68"
+GRID = "#e1e0d9"
+AXIS = "#c3c2b7"
+ACCENT = "#256abf"
+FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif'
+
+# Sentiment is polarity, so it uses a diverging pair around a gray midpoint.
+# Blue and red also stay distinct for red-green colorblind readers.
+SENTIMENT_ORDER = ["Negative", "Neutral", "Positive"]
+SENTIMENT_COLORS = {
+    "Positive": "#2a78d6",
+    "Neutral": "#c3c2b7",
+    "Negative": "#e34948",
+}
+
+HEAT_SCALE = [
+    [0.0, "#f4f3ef"],
+    [0.01, "#cde2fb"],
+    [0.5, "#5598e7"],
+    [1.0, "#0d366b"],
+]
 
 
-CHART_TEMPLATE = "plotly_dark"
-PAPER_BG = "rgba(0,0,0,0)"
-PLOT_BG = "rgba(7,12,26,0.34)"
-FONT_COLOR = "#dce8f8"
-GRID_COLOR = "rgba(148,163,184,0.14)"
-CYAN = "#22d3ee"
-BLUE = "#60a5fa"
-VIOLET = "#a78bfa"
-PINK = "#f472b6"
-GREEN = "#34d399"
-AMBER = "#fbbf24"
-RED = "#fb7185"
-YT_RED = "#ff0033"
-
-
-def style_figure(fig, title):
+def _style(fig, height=300, x_title=None, y_title=None, legend=False):
     fig.update_layout(
-        template=CHART_TEMPLATE,
-        title={
-            "text": title,
-            "x": 0.03,
-            "xanchor": "left",
-            "font": {
-                "size": 22,
-                "color": "#f8fbff",
-                "family": "Inter, system-ui, sans-serif",
-            },
-        },
-        paper_bgcolor=PAPER_BG,
-        plot_bgcolor=PLOT_BG,
-        font={
-            "color": FONT_COLOR,
-            "family": "Inter, system-ui, sans-serif",
-        },
-        margin={
-            "l": 32,
-            "r": 28,
-            "t": 78,
-            "b": 40,
-        },
-        hoverlabel={
-            "bgcolor": "rgba(7,12,26,0.96)",
-            "bordercolor": CYAN,
-            "font_color": "#f8fbff",
-        },
+        height=height,
+        paper_bgcolor=SURFACE,
+        plot_bgcolor=SURFACE,
+        font={"family": FONT, "size": 12, "color": INK_SECONDARY},
+        margin={"l": 4, "r": 8, "t": 28 if legend else 8, "b": 4},
+        showlegend=legend,
         legend={
             "orientation": "h",
+            "x": 0,
+            "xanchor": "left",
+            "y": 1,
             "yanchor": "bottom",
-            "y": 1.02,
-            "xanchor": "right",
-            "x": 1,
+            "traceorder": "reversed",
+            "title": {"text": ""},
         },
-        transition={
-            "duration": 550,
-            "easing": "cubic-in-out",
+        hoverlabel={
+            "bgcolor": SURFACE,
+            "bordercolor": AXIS,
+            "font": {"family": FONT, "size": 12, "color": INK},
         },
     )
-
     fig.update_xaxes(
-        showgrid=True,
-        gridcolor=GRID_COLOR,
+        title={"text": x_title, "font": {"size": 12, "color": INK_MUTED}},
+        showgrid=False,
         zeroline=False,
-        linecolor="rgba(148,163,184,0.25)",
+        linecolor=AXIS,
+        ticks="",
+        tickfont={"color": INK_MUTED},
+        automargin=True,
     )
     fig.update_yaxes(
+        title={"text": y_title, "font": {"size": 12, "color": INK_MUTED}},
         showgrid=True,
-        gridcolor=GRID_COLOR,
+        gridcolor=GRID,
         zeroline=False,
-        linecolor="rgba(148,163,184,0.25)",
+        showline=False,
+        ticks="",
+        tickfont={"color": INK_MUTED},
+        rangemode="tozero",
+        automargin=True,
     )
-
     return fig
 
 
-def sentiment_chart(df):
-    sentiment_counts = (
-        df["sentiment"]
-        .value_counts()
+def _empty(message, height=300):
+    fig = go.Figure()
+    fig.add_annotation(
+        text=message,
+        x=0.5,
+        y=0.5,
+        xref="paper",
+        yref="paper",
+        showarrow=False,
+        font={"size": 13, "color": INK_MUTED},
+    )
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False)
+    fig.update_layout(
+        height=height,
+        paper_bgcolor=SURFACE,
+        plot_bgcolor=SURFACE,
+        margin={"l": 8, "r": 8, "t": 8, "b": 8},
+    )
+    return fig
+
+
+def _time_bucket(dates):
+    """Pick the finest bucket that keeps the chart under about 45 columns."""
+    days = (dates.max() - dates.min()).days
+
+    if days <= 45:
+        return "D", "Day"
+    if days <= 315:
+        return "W-MON", "Week starting"
+    return "MS", "Month"
+
+
+def sentiment_timeline_chart(df, height=300):
+    timeline = df.dropna(subset=["published_at"]).copy()
+
+    if timeline.empty:
+        return _empty("No timestamps available", height)
+
+    timeline["published_at"] = pd.to_datetime(timeline["published_at"]).dt.tz_localize(None)
+    frequency, label = _time_bucket(timeline["published_at"])
+    label_format = "%b %Y" if frequency == "MS" else "%b %-d, %Y"
+    closed = {"closed": "left", "label": "left"} if frequency == "W-MON" else {}
+
+    grouped = (
+        timeline.set_index("published_at")
+        .groupby("sentiment")
+        .resample(frequency, **closed)
+        .size()
+        .rename("count")
         .reset_index()
-    )
-
-    sentiment_counts.columns = [
-        "Sentiment",
-        "Count",
-    ]
-
-    color_map = {
-        "Positive": GREEN,
-        "Neutral": BLUE,
-        "Negative": RED,
-    }
-
-    fig = px.pie(
-        sentiment_counts,
-        names="Sentiment",
-        values="Count",
-        hole=0.58,
-        color="Sentiment",
-        color_discrete_map=color_map,
-    )
-
-    fig.update_traces(
-        textposition="inside",
-        textinfo="percent+label",
-        marker={
-            "line": {
-                "color": "rgba(255,255,255,0.18)",
-                "width": 1.4,
-            }
-        },
-        hovertemplate="<b>%{label}</b><br>Comments: %{value}<br>Share: %{percent}<extra></extra>",
-        pull=[0.03] * len(sentiment_counts),
-    )
-
-    return style_figure(fig, "Audience Sentiment Matrix")
-
-
-def toxicity_chart(df):
-    toxicity_counts = (
-        df["toxicity_prediction"]
-        .value_counts()
-        .reset_index()
-    )
-
-    toxicity_counts.columns = [
-        "Type",
-        "Count",
-    ]
-
-    toxicity_counts["Type"] = toxicity_counts["Type"].map(
-        {
-            0: "Safe",
-            1: "Toxic",
-        }
-    )
-
-    toxicity_counts["Color"] = toxicity_counts["Type"].map(
-        {
-            "Safe": GREEN,
-            "Toxic": RED,
-        }
     )
 
     fig = go.Figure()
-    fig.add_trace(
-        go.Bar(
-            x=toxicity_counts["Type"],
-            y=toxicity_counts["Count"],
-            marker={
-                "color": toxicity_counts["Color"],
-                "line": {
-                    "color": "rgba(255,255,255,0.22)",
-                    "width": 1,
+
+    for sentiment in SENTIMENT_ORDER:
+        series = grouped[grouped["sentiment"] == sentiment]
+        fig.add_trace(
+            go.Bar(
+                name=sentiment,
+                x=series["published_at"],
+                y=series["count"],
+                marker={
+                    "color": SENTIMENT_COLORS[sentiment],
+                    "line": {"color": SURFACE, "width": 1},
                 },
+                customdata=series["published_at"].dt.strftime(label_format),
+                hovertemplate=(
+                    f"{label} %{{customdata}}<br>"
+                    f"{sentiment}: %{{y:,}}<extra></extra>"
+                ),
+            )
+        )
+
+    fig.update_layout(barmode="stack", bargap=0.2)
+    return _style(fig, height=height, y_title="Comments", legend=True)
+
+
+def toxicity_heatmap(df, height=300):
+    timed = df.dropna(subset=["published_at"]).copy()
+
+    if timed.empty:
+        return _empty("No timestamps available", height)
+
+    published = pd.to_datetime(timed["published_at"])
+    timed["hour"] = published.dt.hour
+    timed["day"] = published.dt.day_name().str.slice(0, 3)
+
+    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    hours = list(range(24))
+
+    def weekly_grid(frame):
+        return (
+            frame.groupby(["day", "hour"])
+            .size()
+            .unstack(fill_value=0)
+            .reindex(index=days, columns=hours, fill_value=0)
+        )
+
+    flagged = weekly_grid(timed[timed["toxicity_prediction"] == 1])
+    totals = weekly_grid(timed)
+
+    fig = go.Figure(
+        go.Heatmap(
+            z=flagged.values,
+            x=hours,
+            y=days,
+            customdata=totals.values,
+            colorscale=HEAT_SCALE,
+            zmin=0,
+            zmax=max(1, flagged.values.max()),
+            xgap=2,
+            ygap=2,
+            colorbar={
+                "title": {"text": "Flagged", "font": {"size": 12}},
+                "thickness": 10,
+                "outlinewidth": 0,
+                "tickformat": "d",
+                "dtick": max(1, round(int(flagged.values.max()) / 4)),
             },
-            text=toxicity_counts["Count"],
-            textposition="outside",
-            hovertemplate="<b>%{x}</b><br>Comments: %{y}<extra></extra>",
+            hovertemplate=(
+                "%{y} %{x}:00 UTC<br>"
+                "%{z:,} flagged of %{customdata:,} comments<extra></extra>"
+            ),
         )
     )
-
-    fig.update_layout(bargap=0.42)
-
-    return style_figure(fig, "Toxicity Risk Distribution")
-
-
-def comment_length_chart(df):
-    fig = px.histogram(
-        df,
-        x="comment_length",
-        nbins=32,
-        color_discrete_sequence=[CYAN],
-    )
-
-    fig.update_traces(
-        marker={
-            "line": {
-                "color": "rgba(255,255,255,0.10)",
-                "width": 1,
-            }
-        },
-        hovertemplate="Length: %{x}<br>Comments: %{y}<extra></extra>",
-    )
-
-    fig.update_layout(bargap=0.08)
-    fig.update_xaxes(title_text="Comment length")
-    fig.update_yaxes(title_text="Comments")
-
-    return style_figure(fig, "Comment Length Spectrum")
-
-
-def likes_chart(df):
-    fig = px.histogram(
-        df,
-        x="likes",
-        nbins=32,
-        color_discrete_sequence=[VIOLET],
-    )
-
-    fig.update_traces(
-        marker={
-            "line": {
-                "color": "rgba(255,255,255,0.10)",
-                "width": 1,
-            }
-        },
-        hovertemplate="Likes: %{x}<br>Comments: %{y}<extra></extra>",
-    )
-
-    fig.update_layout(bargap=0.08)
-    fig.update_xaxes(title_text="Likes")
-    fig.update_yaxes(title_text="Comments")
-
-    return style_figure(fig, "Engagement Pulse")
-
-
-def generate_wordcloud(df):
-    all_words = " ".join(
-        df["comment"]
-        .astype(str)
-    )
-
-    wordcloud = WordCloud(
-        width=1400,
-        height=620,
-        background_color="#070c1a",
-        colormap="cool",
-        contour_color="#22d3ee",
-        contour_width=1,
-        prefer_horizontal=0.92,
-    ).generate(all_words)
-
-    fig, ax = plt.subplots(
-        figsize=(14, 6.2),
-        facecolor="#070c1a",
-    )
-
-    ax.imshow(wordcloud, interpolation="bilinear")
-    ax.set_facecolor("#070c1a")
-    ax.axis("off")
-
+    _style(fig, height=height, x_title="Hour (UTC)")
+    fig.update_xaxes(dtick=3, showline=False)
+    fig.update_yaxes(autorange="reversed", showgrid=False, rangemode="normal")
     return fig
 
 
-def timeline_sentiment_chart(df):
-    timeline_df = df.copy()
-    timeline_df["published_at"] = pd.to_datetime(
-        timeline_df["published_at"],
-        errors="coerce",
-    )
-    timeline_df = timeline_df.dropna(subset=["published_at"])
-
-    if timeline_df.empty:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No timeline data available",
-            x=0.5,
-            y=0.5,
-            xref="paper",
-            yref="paper",
-            showarrow=False,
-            font={"size": 16, "color": FONT_COLOR},
+def ranked_bar_chart(labels, values, value_name="Comments", height=300):
+    """Horizontal bars, largest on top, in one hue."""
+    fig = go.Figure(
+        go.Bar(
+            x=list(values)[::-1],
+            y=list(labels)[::-1],
+            orientation="h",
+            marker={"color": ACCENT, "cornerradius": 3},
+            text=[f"{value:,}" for value in list(values)[::-1]],
+            textposition="outside",
+            cliponaxis=False,
+            textfont={"color": INK_SECONDARY},
+            hovertemplate=f"%{{y}}<br>{value_name}: %{{x:,}}<extra></extra>",
         )
-        return style_figure(fig, "Comment Timeline Analysis")
-
-    timeline_df["date"] = timeline_df["published_at"].dt.date
-    grouped = (
-        timeline_df.groupby(
-            [
-                "date",
-                "sentiment",
-            ]
-        )
-        .size()
-        .reset_index(name="count")
     )
-
-    fig = px.area(
-        grouped,
-        x="date",
-        y="count",
-        color="sentiment",
-        color_discrete_map={
-            "Positive": GREEN,
-            "Negative": RED,
-            "Neutral": BLUE,
-        },
-    )
-    fig.update_traces(mode="lines", line={"width": 2.2})
-    fig.update_xaxes(title_text="Date")
-    fig.update_yaxes(title_text="Comment volume")
-    return style_figure(fig, "Comment Timeline Analysis")
+    fig.update_layout(bargap=0.3)
+    _style(fig, height=height)
+    fig.update_xaxes(visible=False, rangemode="tozero")
+    fig.update_yaxes(showgrid=False, automargin=True, rangemode="normal", tickfont={"color": INK_SECONDARY}, ticksuffix="  ")
+    fig.update_layout(margin={"r": 48})
+    return fig
 
 
-def toxicity_heatmap(df):
-    heat_df = df.copy()
-    heat_df["published_at"] = pd.to_datetime(heat_df["published_at"], errors="coerce")
-    heat_df = heat_df.dropna(subset=["published_at"])
-
-    if heat_df.empty:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="No timestamp data for heatmap",
-            x=0.5,
-            y=0.5,
-            xref="paper",
-            yref="paper",
-            showarrow=False,
-            font={"size": 16, "color": FONT_COLOR},
+def comment_length_chart(df, height=300):
+    fig = go.Figure(
+        go.Histogram(
+            x=df["comment_length"],
+            nbinsx=30,
+            marker={"color": ACCENT, "line": {"color": SURFACE, "width": 1}},
+            hovertemplate="%{x} characters<br>Comments: %{y:,}<extra></extra>",
         )
-        return style_figure(fig, "Toxic Activity Heatmap")
+    )
+    return _style(fig, height=height, x_title="Characters", y_title="Comments")
 
-    heat_df["hour"] = heat_df["published_at"].dt.hour
-    heat_df["day"] = heat_df["published_at"].dt.day_name().str.slice(0, 3)
-    day_order = [
-        "Mon",
-        "Tue",
-        "Wed",
-        "Thu",
-        "Fri",
-        "Sat",
-        "Sun",
+
+def likes_chart(df, height=300):
+    """Likes are heavily skewed, so they are shown in widening bands."""
+    bands = [
+        ("0", 0, 0),
+        ("1", 1, 1),
+        ("2–5", 2, 5),
+        ("6–20", 6, 20),
+        ("21–100", 21, 100),
+        ("101+", 101, float("inf")),
     ]
+    labels = [band[0] for band in bands]
+    counts = [int(df["likes"].between(low, high).sum()) for _, low, high in bands]
 
-    matrix = (
-        heat_df.groupby(["day", "hour"])["toxicity_prediction"]
-        .mean()
-        .reset_index(name="toxicity_rate")
+    fig = go.Figure(
+        go.Bar(
+            x=labels,
+            y=counts,
+            marker={"color": ACCENT, "cornerradius": 3},
+            hovertemplate="%{x} likes<br>Comments: %{y:,}<extra></extra>",
+        )
     )
-    matrix["day"] = pd.Categorical(matrix["day"], categories=day_order, ordered=True)
-    matrix = matrix.sort_values(["day", "hour"])
-
-    fig = px.density_heatmap(
-        matrix,
-        x="hour",
-        y="day",
-        z="toxicity_rate",
-        color_continuous_scale=[
-            [0.0, "rgba(34,211,238,0.2)"],
-            [0.5, "rgba(167,139,250,0.7)"],
-            [1.0, YT_RED],
-        ],
-    )
-    fig.update_layout(coloraxis_colorbar={"title": "Toxicity"})
-    fig.update_xaxes(title_text="Hour of day")
-    fig.update_yaxes(title_text="Day")
-    return style_figure(fig, "Toxic Activity Heatmap")
-
-
-def cluster_distribution_chart(df):
-    cluster_counts = df["cluster_name"].value_counts().reset_index()
-    cluster_counts.columns = ["Cluster", "Comments"]
-    fig = px.bar(
-        cluster_counts,
-        x="Cluster",
-        y="Comments",
-        color="Cluster",
-        color_discrete_sequence=[CYAN, VIOLET, BLUE, PINK, AMBER],
-    )
-    fig.update_traces(
-        marker_line_color="rgba(255,255,255,0.20)",
-        marker_line_width=1.2,
-        hovertemplate="<b>%{x}</b><br>Comments: %{y}<extra></extra>",
-    )
-    fig.update_layout(showlegend=False)
-    return style_figure(fig, "Audience Cluster Distribution")
+    fig.update_layout(bargap=0.3)
+    _style(fig, height=height, x_title="Likes per comment", y_title="Comments")
+    fig.update_xaxes(type="category")
+    return fig

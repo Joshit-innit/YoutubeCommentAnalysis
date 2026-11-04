@@ -29,7 +29,7 @@ The toxicity model is trained separately, saved as a serialized model, and loade
 - Detect toxic comments using a trained machine learning model
 - Identify repeated or suspicious spam-like comments
 - Calculate audience satisfaction, controversy, toxicity, and spam metrics
-- Visualize sentiment, toxicity, comment length, likes, keywords, and word clouds
+- Visualize sentiment, toxicity, comment length, likes, and keywords
 - Display the most liked comments and longest comments
 - Export the analyzed comment dataset as a CSV report
 - Generate automated audience insights from the analysis results
@@ -173,7 +173,7 @@ YoutubeToxicAnalysis/
 | Data processing | Pandas, NumPy |
 | Machine learning | Scikit-learn, Logistic Regression, TF-IDF |
 | NLP | NLTK, VADER Sentiment Analyzer, regex preprocessing |
-| Visualization | Plotly, Matplotlib, WordCloud |
+| Visualization | Plotly (dashboard), Matplotlib and WordCloud (notebooks) |
 | API integration | YouTube Data API v3 |
 | Configuration | python-dotenv |
 | Model persistence | Joblib |
@@ -275,9 +275,9 @@ The script:
 
 The dashboard can produce:
 
-- Sentiment distribution chart
-- Toxic vs safe comment chart
-- Word cloud of frequent terms
+- Sentiment split and sentiment over time
+- Flagged comments by day and hour
+- Top keywords chart
 - Comment length distribution
 - Likes distribution
 - Top liked comments table

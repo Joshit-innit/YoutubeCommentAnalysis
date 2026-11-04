@@ -41,7 +41,7 @@ def generate_insights(
     if len(insights) == 0:
 
         insights.append(
-            "Audience reactions appear balanced."
+            "No sentiment, toxicity or spam threshold was crossed."
         )
 
     return insights
